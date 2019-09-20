@@ -24,13 +24,9 @@ class PruneUNet(nn.Module):
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
-        print("x5: {}, x4: {}".format(x5.size(), x4.size()))
         x = self.up1(x5, x4)
-        print("x: {}, x3: {}".format(x.size(), x3.size()))
         x = self.up2(x, x3)
-        print("x: {}, x2: {}".format(x.size(), x2.size()))
         x = self.up3(x, x2)
-        print("x: {}, x1: {}".format(x.size(), x1.size()))
         x = self.up4(x, x1)
         x = self.outc(x)
         return F.sigmoid(x)
@@ -48,7 +44,7 @@ class PruneUNet(nn.Module):
         for p in prunable_modules:
             p.set_pruning_hooks()
     
-    def prune(self):
+    def prune(self, verbose=False):
         # Get all layers excluding larger blocks
         module_list = [module for module in self.modules() 
                         if not isinstance(module, 
@@ -61,9 +57,8 @@ class PruneUNet(nn.Module):
                             PruneUNet)
                             )
                         ]
-        # for i, module in enumerate(module_list):
-        #     print(i, module)
         
+        # Also checks if layer has been pruned to 1 channel remaining
         taylor_estimates_by_module = \
             [(module.taylor_estimates, idx) for idx, module in enumerate(module_list)
             if getattr(module, "prune_feature_map", False) and module.out_channels > 1]
@@ -77,7 +72,9 @@ class PruneUNet(nn.Module):
 
         p_conv = module_list[min_module_idx]
         p_conv.prune_feature_map(min_f_map_idx)
-        print("Pruned conv layer number {}, {}".format(min_module_idx, p_conv))
+        
+        if verbose:
+            print("Pruned conv layer number {}, {}".format(min_module_idx, p_conv))
 
         # Find next conv layer to drop input channel
         is_last_conv = len(module_list)-1 == min_module_idx
@@ -89,7 +86,28 @@ class PruneUNet(nn.Module):
             while next_conv_idx < len(module_list):
                 if isinstance(module_list[next_conv_idx], PrunableConv2d):
                     module_list[next_conv_idx].drop_input_channel(min_f_map_idx)
-                    print("Found next conv layer at number {}, {}".format(next_conv_idx, module_list[next_conv_idx]))
+                    if verbose:
+                        print("Found next conv layer at number {}, {}"
+                            .format(next_conv_idx, module_list[next_conv_idx]))
                     break
                 next_conv_idx += 1
+            
+            # Hardcoded way of dealing with up sampled layers
+
+            # x4 as output of down3 -> drop input channel of up1
+            if min_module_idx == 24:
+                p_up_conv = module_list[35]
+                p_up_conv.drop_input_channel(min_f_map_idx)
+            # x3 as output of down2 -> drop input channel of up2
+            elif min_module_idx == 17:
+                p_up_conv = module_list[42]
+                p_up_conv.drop_input_channel(min_f_map_idx)
+            # x2 as output of down1 -> drop input channel of up3
+            elif min_module_idx == 10:
+                p_up_conv = module_list[49]
+                p_up_conv.drop_input_channel(min_f_map_idx)
+            # x1 as output of inc -> drop input channel of up4
+            elif min_module_idx == 3:
+                p_up_conv = module_list[56]
+                p_up_conv.drop_input_channel(min_f_map_idx)
 

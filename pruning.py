@@ -22,7 +22,8 @@ def train_prune_net(net,
               val_percent=0.05,
               save_cp=True,
               gpu=False,
-              img_scale=0.5):
+              img_scale=0.5,
+              num_prune_iterations=100):
 
     dir_img = 'data/train/'
     dir_mask = 'data/train_masks/'
@@ -63,10 +64,8 @@ def train_prune_net(net,
         print('Starting epoch {}/{}.'.format(epoch + 1, epochs))
 
         net.eval()
-        for i, b in enumerate(val):
-            if i > 2:
-                break
-            
+        sub = list(enumerate(val))[:3]
+        for i, b in sub:            
             img = b[0]
             true_mask = b[1]
 
@@ -111,16 +110,15 @@ def train_prune_net(net,
             loss.backward()
             optimizer.step()
             
-            for j in range(100):
-                # print("Pruning at iter {}".format(j))
-                net.prune()
+            for j in range(num_prune_iterations):
+                if j == num_prune_iterations-1:
+                    net.prune(verbose=True)
+                else:
+                    net.prune(verbose=False)
         
         summary(net, (3, 640, 640))
 
-        for i, b in enumerate(val):
-            if i > 2:
-                break
-            
+        for i, b in sub:
             img = b[0]
             true_mask = b[1]
 
@@ -164,6 +162,8 @@ def get_args():
                       default=False, help='load file model')
     parser.add_option('-s', '--scale', dest='scale', type='float',
                       default=0.5, help='downscaling factor of the images')
+    parser.add_option('-p', '--num-prunes', dest='num_prune_iterations', default=100, type='int',
+                      help='number of iterations to prune filters')
 
     (options, args) = parser.parse_args()
     return options
@@ -191,7 +191,8 @@ if __name__ == '__main__':
                   batch_size=args.batchsize,
                   lr=args.lr,
                   gpu=args.gpu,
-                  img_scale=args.scale)
+                  img_scale=args.scale,
+                  num_prune_iterations=args.num_prune_iterations)
     except KeyboardInterrupt:
         torch.save(net.state_dict(), 'INTERRUPTED.pth')
         print('Saved interrupt')
